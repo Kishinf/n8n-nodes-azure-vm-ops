@@ -19,7 +19,9 @@ Start/Stop/Deallocate are long-running Azure operations. By default the node pol
 
 Manage Tags uses Azure's dedicated `Microsoft.Resources/tags/default` sub-resource with `Merge` / `Delete` / `Replace` semantics, so adding or removing a single tag never clobbers the VM's other existing tags (a plain `PATCH` on the VM resource itself would overwrite the whole tags object).
 
-Every operation's output includes the VM's ARM resource — `id`, `name`, `location`, `tags`, and the full `properties` object (hardware profile, OS profile, network profile, provisioning state, and — when requested — `instanceView` power state). Get Status/Start/Stop/Deallocate/Manage Tags always include this; List VMs includes it when **Include Power State** is on. In all of those cases, the output also gets a friendly top-level **`powerState`** field (e.g. `"running"`, `"deallocated"`, `"stopped"`) parsed out of the raw `instanceView.statuses` array, so you don't have to dig through it yourself — `null` if Azure hasn't reported one.
+Every operation's output includes the VM's ARM resource — `id`, `name`, `location`, `tags`, and the full `properties` object (hardware profile, OS profile, network profile, provisioning state, and — when requested — `instanceView` power state). Get Status/Start/Stop/Deallocate/Manage Tags always include this; List VMs includes it when **Include Power State** is on.
+
+Every output item also gets two convenience top-level fields parsed out of the resource `id`, so downstream nodes don't have to string-split it: **`subscriptionId`** and **`resourceGroup`** (both `null` if `id` is missing or unparseable). And — for Get Status/Start/Stop/Deallocate/Manage Tags always, and for List VMs when **Include Power State** is on — a friendly top-level **`powerState`** field (e.g. `"running"`, `"deallocated"`, `"stopped"`) parsed out of the raw `instanceView.statuses` array, so you don't have to dig through it yourself — `null` if Azure hasn't reported one.
 
 ### Name Filter (List VMs)
 

@@ -25,6 +25,17 @@ const POWER_ACTIONS: { [key: string]: string } = {
 	deallocate: 'deallocate',
 };
 
+// Azure only returns the subscription ID and resource group name buried inside
+// the resource `id` (/subscriptions/{sub}/resourceGroups/{rg}/providers/...).
+// Surface both as top-level output fields so downstream nodes don't have to
+// string-parse `id` themselves. Segment casing in Azure-returned IDs varies,
+// so match case-insensitively.
+function addResourceIds(vm: IDataObject): void {
+	const id = (vm.id as string) ?? '';
+	vm.subscriptionId = id.match(/\/subscriptions\/([^/]+)/i)?.[1] ?? null;
+	vm.resourceGroup = id.match(/\/resourceGroups\/([^/]+)/i)?.[1] ?? null;
+}
+
 export class AzureVmNode implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Azure VM',
@@ -633,6 +644,12 @@ export class AzureVmNode implements INodeType {
 							}
 						}
 
+						// Add subscriptionId / resourceGroup before filtering so they
+						// can be targeted by a "Property Path" filter condition too.
+						for (const vm of vms) {
+							addResourceIds(vm);
+						}
+
 						if (nameFilter) {
 							vms = vms.filter((vm) => (vm.name as string).toLowerCase().includes(nameFilter));
 						}
@@ -666,6 +683,7 @@ export class AzureVmNode implements INodeType {
 						COMPUTE_API_VERSION,
 					)) as IDataObject;
 					vm.powerState = extractPowerState(vm) ?? null;
+					addResourceIds(vm);
 					returnData.push({ json: vm, pairedItem: { item: i } });
 					continue;
 				}
@@ -704,6 +722,7 @@ export class AzureVmNode implements INodeType {
 						COMPUTE_API_VERSION,
 					)) as IDataObject;
 					vm.powerState = extractPowerState(vm) ?? null;
+					addResourceIds(vm);
 					returnData.push({ json: vm, pairedItem: { item: i } });
 					continue;
 				}
@@ -757,6 +776,7 @@ export class AzureVmNode implements INodeType {
 						COMPUTE_API_VERSION,
 					)) as IDataObject;
 					vm.powerState = extractPowerState(vm) ?? null;
+					addResourceIds(vm);
 					returnData.push({ json: vm, pairedItem: { item: i } });
 					continue;
 				}
