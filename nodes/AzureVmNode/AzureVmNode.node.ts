@@ -38,7 +38,7 @@ function addResourceIds(vm: IDataObject): void {
 
 export class AzureVmNode implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'Azure VM',
+		displayName: 'Azure VM Operations',
 		name: 'azureVmNode',
 		icon: 'file:azureVm.svg',
 		group: ['transform'],
