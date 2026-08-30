@@ -10,7 +10,7 @@
   ],
   "license": "MIT",
   "homepage": "https://github.com/kishinf/n8n-nodes-azure-vm#readme",
-  "author": "Kishin Fatnani"
+  "author": "Kishin Fatnani",
   "repository": {
     "type": "git",
     "url": "https://github.com/kishinf/n8n-nodes-azure-vm.git"
