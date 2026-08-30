@@ -87,16 +87,10 @@ jobs:
       - name: Ensure npm supports OIDC provenance
         run: npm install -g npm@latest
       - name: Release
-        # Publishes to npm with a provenance attestation (requires id-token: write above).
-        # Lint and build run automatically as part of the release process.
-        #
-        # Option A (OIDC): leave NPM_TOKEN unset — the token step is skipped and
-        #   npm uses the OIDC exchange instead.
-        # Option B (token): set NPM_TOKEN in repo secrets — it is written to
-        #   .npmrc here before publishing.
-        run: |
-        #  [ -n "$NPM_TOKEN" ] && npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
-          npm run release
-        #env:
-        # NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          
+        # Publishes to npm with a provenance attestation via OIDC Trusted
+        # Publishing (requires id-token: write above). No NPM_TOKEN needed —
+        # npm uses the OIDC exchange. Configure a Trusted Publisher for this
+        # package on npmjs.com (see the "ONE-TIME SETUP" notes at the top).
+        # Lint and build run automatically as part of `npm run release`.
+        run: npm run release
+
