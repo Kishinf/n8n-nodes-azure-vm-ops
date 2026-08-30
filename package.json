@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-azure-vm-ops",
-  "version": "0.1.6",
+  "version": "0.1.5",
   "description": "n8n community node to list, monitor, start, stop, deallocate and tag Azure Virtual Machines via the Azure Resource Manager API",
   "keywords": [
     "n8n-community-node-package",
