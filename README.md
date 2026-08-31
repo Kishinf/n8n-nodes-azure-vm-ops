@@ -49,7 +49,7 @@ Example — expired VMs, in either West US 2 or East US:
 
 ## Credentials
 
-Create an **Azure VM API** credential with a Service Principal (App Registration):
+Create an **Azure VM OAuth2 API** credential with a Service Principal (App Registration):
 
 1. In Entra ID, create an **App Registration** and a **Client Secret** for it.
 2. Grant it an RBAC role on the subscription or resource group you want it to manage — at minimum **Virtual Machine Contributor** (or **Reader** if you only need List/Get Status).
@@ -57,7 +57,9 @@ Create an **Azure VM API** credential with a Service Principal (App Registration
    - **Environment** — Azure Public Cloud, US Government, China, or Germany
    - **Tenant ID**, **Client ID**, **Client Secret**
 
-The node authenticates with the OAuth2 `client_credentials` grant against Azure AD (`https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token`) and caches the access token in memory until shortly before it expires.
+The credential extends n8n's built-in `oAuth2Api` type, pre-configured for the OAuth2 `client_credentials` grant against Azure AD (`https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token`, scope `{resourceManager}/.default`) — token exchange, caching, and refresh are handled by n8n core the same way as any other OAuth2 credential, not by custom code in this package.
+
+> **Upgrading from ≤ 0.1.6?** The credential type was renamed from `azureVmApi` ("Azure VM API") to `azureVmOAuth2Api` ("Azure VM OAuth2 API") to satisfy n8n's naming convention for OAuth2 credentials, and its internals switched from a custom token exchange to extending n8n's built-in `oAuth2Api`. This is a breaking change: any credential you created under the old type is now orphaned. Create a new **Azure VM OAuth2 API** credential with the same Tenant ID/Client ID/Client Secret/Environment, then re-select it on every node that used the old one.
 
 **Subscription** is set per node (not on the credential) — a Service Principal isn't bound to one subscription, so it lives with the other resource-scope parameters (Resource Group, VM Name) rather than with the auth fields. The dropdown lists whatever subscriptions the Service Principal can see (`GET /subscriptions`); it still needs an RBAC role assignment on each one it should be able to operate on.
 

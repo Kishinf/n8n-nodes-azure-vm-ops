@@ -8,7 +8,7 @@ import type {
 } from 'n8n-workflow';
 import { NodeApiError, NodeOperationError, sleep } from 'n8n-workflow';
 
-import { AZURE_ENVIRONMENTS } from '../../credentials/AzureVmApi.credentials';
+import { AZURE_ENVIRONMENTS } from '../../credentials/AzureVmOAuth2Api.credentials';
 
 type AzureVmCredentials = {
 	environment: string;
@@ -16,8 +16,10 @@ type AzureVmCredentials = {
 
 /**
  * Makes a request against the Azure Resource Manager API, authenticated via
- * the "azureVmApi" credential's `authenticate` function (see
- * credentials/AzureVmApi.credentials.ts for the actual token exchange).
+ * the "azureVmOAuth2Api" credential (see
+ * credentials/AzureVmOAuth2Api.credentials.ts — it extends n8n's built-in
+ * oAuth2Api type, so n8n core handles the actual client_credentials token
+ * exchange/caching/refresh).
  *
  * `endpoint` may be a path relative to the Resource Manager base URL (e.g.
  * `/subscriptions/.../virtualMachines/foo`) or a fully-qualified URL (used
@@ -36,7 +38,9 @@ export async function azureApiRequest<T = IDataObject>(
 	apiVersion = '2024-07-01',
 	returnFullResponse = false,
 ): Promise<T> {
-	const credentials = (await this.getCredentials('azureVmApi')) as unknown as AzureVmCredentials;
+	const credentials = (await this.getCredentials(
+		'azureVmOAuth2Api',
+	)) as unknown as AzureVmCredentials;
 	const env = AZURE_ENVIRONMENTS[credentials.environment] ?? AZURE_ENVIRONMENTS.azurePublic;
 
 	const isFullUrl = endpoint.startsWith('http://') || endpoint.startsWith('https://');
@@ -61,7 +65,7 @@ export async function azureApiRequest<T = IDataObject>(
 	try {
 		return (await this.helpers.httpRequestWithAuthentication.call(
 			this,
-			'azureVmApi',
+			'azureVmOAuth2Api',
 			options,
 		)) as T;
 	} catch (error) {

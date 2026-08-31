@@ -53,7 +53,7 @@ export class AzureVmNode implements INodeType {
 		outputs: [NodeConnectionTypes.Main],
 		credentials: [
 			{
-				name: 'azureVmApi',
+				name: 'azureVmOAuth2Api',
 				required: true,
 			},
 		],
