@@ -10,7 +10,7 @@ import type {
 } from 'n8n-workflow';
 import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
-import { azureApiRequest, azureApiRequestAllItems, waitForAzureOperation } from './GenericFunctions';
+import { azureApiRequest, azureApiRequestAllItems, getAzureOperationStatus } from './GenericFunctions';
 import type { FilterGroup, FilterRow } from './VmFilter';
 import { extractPowerState, vmMatchesFilters } from './VmFilter';
 
@@ -65,6 +65,13 @@ export class AzureVmNode implements INodeType {
 				noDataExpression: true,
 				default: 'list',
 				options: [
+					{
+						name: 'Check Operation Status',
+						value: 'checkOperationStatus',
+						description:
+							'Check the status of a previously started long-running operation (e.g. from Start/Stop/Deallocate), without blocking the workflow',
+						action: 'Check operation status',
+					},
 					{
 						name: 'Deallocate',
 						value: 'deallocate',
@@ -352,38 +359,18 @@ export class AzureVmNode implements INodeType {
 			},
 
 			// ------------------------------------------------------------------
-			// Start / Stop / Deallocate options
+			// Check Operation Status
 			// ------------------------------------------------------------------
 			{
-				displayName: 'Wait for Completion',
-				name: 'waitForCompletion',
-				type: 'boolean',
-				default: true,
-				displayOptions: { show: { operation: ['start', 'stop', 'deallocate'] } },
+				displayName: 'Operation URL',
+				name: 'operationUrl',
+				type: 'string',
+				default: '',
+				required: true,
+				placeholder: '={{ $json.operationUrl }}',
+				displayOptions: { show: { operation: ['checkOperationStatus'] } },
 				description:
-					'Whether to poll Azure until the power operation finishes before returning the VM\'s properties. When off, the VM is fetched immediately and may still show its previous state.',
-			},
-			{
-				displayName: 'Poll Interval (Seconds)',
-				name: 'pollInterval',
-				type: 'number',
-				default: 5,
-				typeOptions: { minValue: 1 },
-				displayOptions: {
-					show: { operation: ['start', 'stop', 'deallocate'], waitForCompletion: [true] },
-				},
-				description: 'How often to check on the operation while waiting',
-			},
-			{
-				displayName: 'Timeout (Seconds)',
-				name: 'timeout',
-				type: 'number',
-				default: 300,
-				typeOptions: { minValue: 1 },
-				displayOptions: {
-					show: { operation: ['start', 'stop', 'deallocate'], waitForCompletion: [true] },
-				},
-				description: 'Maximum time to wait for the operation to complete before failing',
+					'The Azure long-running-operation status URL to check — typically the operationUrl field from a previous Start/Stop/Deallocate item\'s output (see the placeholder above for the exact expression). Returns Azure\'s raw status ("InProgress", "Succeeded", "Failed", ...). To wait for completion without blocking the workflow, put this node in a loop with n8n\'s built-in Wait node between checks.',
 			},
 
 			// ------------------------------------------------------------------
@@ -667,6 +654,13 @@ export class AzureVmNode implements INodeType {
 					continue;
 				}
 
+				if (operation === 'checkOperationStatus') {
+					const operationUrl = this.getNodeParameter('operationUrl', i) as string;
+					const status = await getAzureOperationStatus.call(this, operationUrl);
+					returnData.push({ json: { operationUrl, ...status }, pairedItem: { item: i } });
+					continue;
+				}
+
 				// Every remaining operation acts on a single, specific VM.
 				const subscriptionId = this.getNodeParameter('subscriptionId', i) as string;
 				const resourceGroup = this.getNodeParameter('resourceGroup', i) as string;
@@ -689,8 +683,6 @@ export class AzureVmNode implements INodeType {
 				}
 
 				if (operation === 'start' || operation === 'stop' || operation === 'deallocate') {
-					const waitForCompletion = this.getNodeParameter('waitForCompletion', i) as boolean;
-
 					const response = (await azureApiRequest.call(
 						this,
 						'POST',
@@ -701,16 +693,33 @@ export class AzureVmNode implements INodeType {
 						true, // need the response headers to find the async-operation URL
 					)) as IN8nHttpFullResponse;
 
-					if (waitForCompletion && response.statusCode === 202) {
-						const operationUrl =
+					// Azure's power actions are long-running: a 202 means "accepted,
+					// not finished yet". This node deliberately does not block its
+					// execution polling for completion (n8n recommends against
+					// long-running loops inside a single node run, since it ties up
+					// an execution/worker slot the whole time) — it does one
+					// immediate status check and returns. To wait for the operation
+					// to actually finish, loop [n8n Wait node] -> [this node,
+					// Check Operation Status with operationUrl] -> [If] in the
+					// workflow itself, which n8n's Wait node can do without holding
+					// a slot open.
+					let operationUrl: string | null = null;
+					let operationStatus: string | null = null;
+
+					if (response.statusCode === 202) {
+						operationUrl =
 							(response.headers?.['azure-asyncoperation'] as string) ??
-							(response.headers?.['location'] as string);
+							(response.headers?.['location'] as string) ??
+							null;
 
 						if (operationUrl) {
-							const pollInterval = (this.getNodeParameter('pollInterval', i) as number) * 1000;
-							const timeout = (this.getNodeParameter('timeout', i) as number) * 1000;
-							await waitForAzureOperation.call(this, operationUrl, pollInterval, timeout);
+							const status = await getAzureOperationStatus.call(this, operationUrl);
+							operationStatus = (status.status as string) ?? null;
 						}
+					} else {
+						// Some actions occasionally complete synchronously (200/204),
+						// with no async operation to track.
+						operationStatus = 'Succeeded';
 					}
 
 					const vm = (await azureApiRequest.call(
@@ -723,6 +732,8 @@ export class AzureVmNode implements INodeType {
 					)) as IDataObject;
 					vm.powerState = extractPowerState(vm) ?? null;
 					addResourceIds(vm);
+					vm.operationUrl = operationUrl;
+					vm.operationStatus = operationStatus;
 					returnData.push({ json: vm, pairedItem: { item: i } });
 					continue;
 				}
@@ -792,7 +803,7 @@ export class AzureVmNode implements INodeType {
 					});
 					continue;
 				}
-				// Errors from azureApiRequest/waitForAzureOperation/the "Unknown
+				// Errors from azureApiRequest/getAzureOperationStatus/the "Unknown
 				// operation" guard above are already NodeApiError/NodeOperationError;
 				// anything else (a bug, an unexpected throw) gets wrapped so n8n
 				// always renders a proper node error rather than a raw exception.

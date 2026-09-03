@@ -6,7 +6,7 @@ import type {
 	IHttpRequestOptions,
 	JsonObject,
 } from 'n8n-workflow';
-import { NodeApiError, NodeOperationError, sleep } from 'n8n-workflow';
+import { NodeApiError } from 'n8n-workflow';
 
 import { AZURE_ENVIRONMENTS } from '../../credentials/AzureVmOAuth2Api.credentials';
 
@@ -116,40 +116,24 @@ export async function azureApiRequestAllItems(
 }
 
 /**
- * Polls an Azure long-running-operation (LRO) status URL — the value of the
+ * Performs a single, non-blocking status check against an Azure
+ * long-running-operation (LRO) status URL — the value of the
  * `Azure-AsyncOperation` (preferred) or `Location` response header returned
- * by actions like start/powerOff/deallocate — until it reaches a terminal
- * state or the timeout elapses.
+ * by actions like start/powerOff/deallocate. Returns Azure's raw status
+ * payload, typically `{ status: 'InProgress' | 'Succeeded' | 'Failed' |
+ * 'Canceled', ... }`.
+ *
+ * Deliberately does not loop or sleep: n8n recommends against a node
+ * blocking its execution on a long-running external operation, since that
+ * ties up a worker/execution slot for however long the wait takes. Call this
+ * once per workflow iteration (the "Check Operation Status" node operation)
+ * and use n8n's built-in Wait node between calls to check repeatedly —
+ * it suspends and resumes the execution without holding a slot the whole
+ * time, unlike an in-node poll loop.
  */
-export async function waitForAzureOperation(
+export async function getAzureOperationStatus(
 	this: IExecuteFunctions,
 	operationUrl: string,
-	pollIntervalMs: number,
-	timeoutMs: number,
-): Promise<void> {
-	const deadline = Date.now() + timeoutMs;
-
-	while (true) {
-		const status = await (azureApiRequest<IDataObject>).call(this, 'GET', operationUrl, {}, {});
-		const state = (status.status as string) ?? 'Succeeded';
-
-		if (state === 'Succeeded') {
-			return;
-		}
-		if (state === 'Failed' || state === 'Canceled') {
-			throw new NodeOperationError(
-				this.getNode(),
-				`Azure operation ended with status "${state}": ${JSON.stringify(status.error ?? status)}`,
-			);
-		}
-
-		if (Date.now() >= deadline) {
-			throw new NodeOperationError(
-				this.getNode(),
-				`Timed out waiting for the Azure operation to complete (last status: "${state}")`,
-			);
-		}
-
-		await sleep(pollIntervalMs);
-	}
+): Promise<IDataObject> {
+	return (azureApiRequest<IDataObject>).call(this, 'GET', operationUrl, {}, {});
 }

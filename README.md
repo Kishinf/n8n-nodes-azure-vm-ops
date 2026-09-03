@@ -14,10 +14,27 @@ All Subscription / Resource Group / VM Name fields are dropdowns fetched live fr
 | **Stop** | Powers off a VM (compute resources stay allocated — still billed) | `POST .../virtualMachines/{name}/powerOff` |
 | **Deallocate** | Stops the VM and releases compute resources (no compute billing) | `POST .../virtualMachines/{name}/deallocate` |
 | **Manage Tags** | Add/update one tag, remove one tag, or replace the entire tag set | `PATCH .../providers/Microsoft.Resources/tags/default` |
-
-Start/Stop/Deallocate are long-running Azure operations. By default the node polls until the operation finishes (configurable poll interval / timeout) and then re-fetches the VM so the output always reflects the final state; polling can be turned off if you'd rather fire-and-forget.
+| **Check Operation Status** | One-shot status check of a long-running operation started by Start/Stop/Deallocate | `GET` the `operationUrl` from a previous item |
 
 Manage Tags uses Azure's dedicated `Microsoft.Resources/tags/default` sub-resource with `Merge` / `Delete` / `Replace` semantics, so adding or removing a single tag never clobbers the VM's other existing tags (a plain `PATCH` on the VM resource itself would overwrite the whole tags object).
+
+### Start/Stop/Deallocate and long-running operations
+
+Azure's power actions are long-running: the `POST` returns `202 Accepted` before the VM has actually finished starting/stopping/deallocating. This node does **not** block its own execution polling until that finishes — n8n recommends against a node looping/sleeping inside a single `execute()` call, since that ties up an execution (and, in queue mode, a worker slot) for however long the wait takes, and can't be resumed if n8n restarts mid-wait.
+
+Instead, Start/Stop/Deallocate fire the action, do one immediate status check, and return right away with two extra fields on the output alongside the VM's properties:
+- **`operationUrl`** — the Azure operation-status URL (`null` if the action completed synchronously, which happens occasionally)
+- **`operationStatus`** — Azure's status at that moment (typically `"InProgress"` right after firing; `"Succeeded"`/`"Failed"`/`"Canceled"` once done)
+
+To actually wait for completion, do it in the workflow with n8n's built-in **Wait** node, which suspends and resumes the execution without holding a slot open:
+
+```
+Azure VM (Start) → Wait (e.g. 5s) → Azure VM (Check Operation Status, operationUrl = {{ $json.operationUrl }}) → If (operationStatus == "Succeeded"?)
+                        ↑                                                                                              │
+                        └──────────────────────────── loop back if not yet ─────────────────────────────────────────┘
+```
+
+If you don't need to know when it finishes — just that you asked Azure to do it — ignore `operationUrl`/`operationStatus` and move on; the action has already been accepted by Azure either way.
 
 Every operation's output includes the VM's ARM resource — `id`, `name`, `location`, `tags`, and the full `properties` object (hardware profile, OS profile, network profile, provisioning state, and — when requested — `instanceView` power state). Get Status/Start/Stop/Deallocate/Manage Tags always include this; List VMs includes it when **Include Power State** is on.
 
